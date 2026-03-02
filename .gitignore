@@ -1,0 +1,22 @@
+# 1. The Blacksmith Shop (Python environments and cache)
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 2. The Master Keys (NEVER upload these to the cloud)
+.env
+*.json
+
+# 3. The Heavy Bricks (Audio files and output folders)
+generated_output/
+temp/ß
+temp_audio/
+*.mp3
+*.m4a
+*.wav
+
+# 4. Operating System Junk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SynthApp - Speed Reader</title>
+    <!-- Bring in Tailwind CSS instantly -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Bring in Inter font for maximum readability -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Soft, dyslexia-friendly scrollbars */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 5px; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 min-h-screen flex justify-center items-start p-6 antialiased">
+
+    <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6 border border-gray-700">
+        
+        <header class="text-center">
+            <h1 class="text-3xl font-semibold text-white tracking-tight">SynthApp <span class="text-blue-500">FastReader</span></h1>
+            <p class="text-gray-400 text-sm mt-1">High-Speed Neural Engine</p>
+        </header>
+
+        {% if not tts_enabled %}
+        <div class="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg text-center font-medium">
+            TTS Service is offline. Check your Google Cloud JSON key.
+        </div>
+        {% endif %}
+
+        <form id="tts-form" class="space-y-6">
+            <!-- Dyslexia Optimized Text Area -->
+            <div class="space-y-2">
+                <div class="flex justify-between items-end px-1">
+                    <label for="text-input" class="text-sm font-medium text-gray-400">Paste your text here</label>
+                    <button type="button" id="clear-btn" class="text-sm text-gray-400 hover:text-white transition">Clear</button>
+                </div>
+                <textarea id="text-input" name="text" required
+                    class="w-full h-80 p-6 bg-gray-950 text-gray-100 border border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-xl leading-relaxed resize-y"
+                    placeholder="Drop your text here..."></textarea>
+                <div class="text-right text-xs text-gray-500" id="char-count">0 / {{ max_chars }} chars</div>
+            </div>
+
+            <!-- Voice Selection & Action Row -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                <div class="md:col-span-2">
+                    <select name="selected_voice" id="selected_voice" class="w-full bg-gray-700 border border-gray-600 text-white text-lg rounded-lg px-4 py-4 focus:ring-2 focus:ring-blue-500 outline-none">
+                        {% for voice_id, voice_desc in allowed_voices.items() %}
+                            <option value="{{ voice_id }}" {% if voice_id == DEFAULT_VOICE %}selected{% endif %}>{{ voice_desc }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="md:col-span-1">
+                    <button type="submit" id="convert-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-lg py-4 rounded-lg shadow-lg hover:shadow-blue-500/25 transition-all transform active:scale-95 flex justify-center items-center">
+                        <span id="btn-text">Synthesize & Play</span>
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Dynamic Audio Player Area -->
+        <div id="results-area" class="hidden mt-8 p-6 bg-gray-900 rounded-xl border border-gray-700 shadow-inner">
+            <p id="status-text" class="text-sm text-green-400 mb-3 font-medium">Audio ready.</p>
+            <audio id="audio-player" controls class="w-full rounded-lg outline-none"></audio>
+        </div>
+    </div>
+
+    <!-- Frontend Logic -->
+    <script>
+        const form = document.getElementById('tts-form');
+        const textInput = document.getElementById('text-input');
+        const convertBtn = document.getElementById('convert-btn');
+        const btnText = document.getElementById('btn-text');
+        const resultsArea = document.getElementById('results-area');
+        const audioPlayer = document.getElementById('audio-player');
+        const clearBtn = document.getElementById('clear-btn');
+        const charCount = document.getElementById('char-count');
+        const statusText = document.getElementById('status-text');
+
+        // Auto-save text to local storage so you never lose your place
+        textInput.value = localStorage.getItem('synthText') || '';
+        textInput.addEventListener('input', () => {
+            localStorage.setItem('synthText', textInput.value);
+            charCount.innerText = `${textInput.value.length} / {{ max_chars }} chars`;
+        });
+
+        clearBtn.addEventListener('click', () => {
+            textInput.value = '';
+            localStorage.setItem('synthText', '');
+            charCount.innerText = `0 / {{ max_chars }} chars`;
+            resultsArea.classList.add('hidden');
+            audioPlayer.src = '';
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // UI Loading State
+            convertBtn.disabled = true;
+            convertBtn.classList.replace('bg-blue-600', 'bg-gray-600');
+            btnText.innerText = 'Processing...';
+            resultsArea.classList.add('hidden');
+
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch('/convert', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultsArea.classList.remove('hidden');
+                    statusText.innerText = `Saved to: ${data.local_output_directory}`;
+                    statusText.classList.replace('text-red-400', 'text-green-400');
+                    audioPlayer.src = data.audio_url_mp3_player;
+                    audioPlayer.play(); // Auto-play immediately!
+                } else {
+                    resultsArea.classList.remove('hidden');
+                    statusText.innerText = `Error: ${data.error}`;
+                    statusText.classList.replace('text-green-400', 'text-red-400');
+                }
+            } catch (err) {
+                alert("Network error occurred.");
+            } finally {
+                // Restore UI
+                convertBtn.disabled = false;
+                convertBtn.classList.replace('bg-gray-600', 'bg-blue-600');
+                btnText.innerText = 'Synthesize & Play';
+            }
+        });
+
+        // Cmd+Enter shortcut to synthesize instantly
+        window.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!convertBtn.disabled) form.dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>
