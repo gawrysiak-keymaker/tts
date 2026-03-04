@@ -5,10 +5,7 @@ import os
 TTS_PROVIDERS = {
     'google': {
         'voices': {
-            'en-US-Neural2-F': 'US Female (Neural2 - Premium & Fast)',
-            'en-US-Neural2-D': 'US Male (Neural2 - Premium & Fast)',
-            'en-US-Wavenet-F': 'US Female (Wavenet - Classic)',
-            'en-US-Journey-F': 'US Female (Journey - Ultra Expressive)'
+            'en-US-Wavenet-F': 'US Female (Wavenet - Classic Speed)'
         }
     }
 }
@@ -16,9 +13,7 @@ TTS_PROVIDERS = {
 # --- Application Settings ---
 MAX_CHARS = 50000               
 TTS_CHUNK_MAX_BYTES = 4000      
-
-DEFAULT_VOICE = 'en-US-Neural2-F'
-LLM_MODEL_TO_USE = "gemini-1.5-flash" 
+DEFAULT_VOICE = 'en-US-Wavenet-F'
 
 # --- Local Output Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
