@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SynthApp - Liquid Stream fast</title>
+    <title>SynthApp - Liquid Stream ⚡</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -11,11 +11,26 @@
         ::-webkit-scrollbar { width: 10px; }
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 5px; }
+        
+        /* The Error Shake Animation */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+        }
+        .animate-shake { animation: shake 0.4s ease-in-out; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200 min-h-screen flex justify-center items-start p-6 antialiased">
+<body class="bg-gray-900 text-gray-200 min-h-screen flex justify-center items-start p-6 antialiased relative overflow-hidden">
 
-    <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6 border border-gray-700">
+    <!-- THE ERROR TOAST (Hidden by default, slides down on failure) -->
+    <div id="error-toast" class="absolute top-5 right-5 bg-red-600/90 backdrop-blur-md text-white px-6 py-4 rounded-xl shadow-2xl transform transition-all duration-300 -translate-y-20 opacity-0 flex items-center gap-3 z-50 border border-red-400">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <span id="error-toast-text" class="font-medium tracking-wide">Connection lost.</span>
+    </div>
+
+    <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6 border border-gray-700 relative">
         
         <header class="text-center">
             <h1 class="text-3xl font-semibold text-white tracking-tight">SynthApp <span class="text-blue-500">Liquid</span></h1>
@@ -23,7 +38,7 @@
         </header>
 
         {% if not tts_enabled %}
-        <div class="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg text-center font-medium">
+        <div class="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg text-center font-medium animate-pulse">
             TTS Service is offline. Check your Google Cloud JSON key.
         </div>
         {% endif %}
@@ -34,18 +49,30 @@
                     <label for="text-input" class="text-sm font-medium text-gray-400">Paste your text here</label>
                     <button type="button" id="clear-btn" class="text-sm text-gray-400 hover:text-white transition">Clear</button>
                 </div>
+                <!-- Added transition-colors so it can 'flash' on Cmd+S -->
                 <textarea id="text-input" name="text" required
-                    class="w-full h-80 p-6 bg-gray-950 text-gray-100 border border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-xl leading-relaxed resize-y"
+                    class="w-full h-80 p-6 bg-gray-950 text-gray-100 border border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 text-xl leading-relaxed resize-y"
                     placeholder="Drop your text here..."></textarea>
             </div>
 
-            <button type="submit" id="convert-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-lg py-4 rounded-lg shadow-lg hover:shadow-blue-500/25 transition-all transform active:scale-95 flex justify-center items-center">
+            <!-- The Cast Button with Spinning SVG -->
+            <button type="submit" id="convert-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-lg py-4 rounded-lg shadow-lg hover:shadow-blue-500/25 transition-all duration-150 transform active:scale-95 flex justify-center items-center relative overflow-hidden">
                 <span id="btn-text">Synthesize & Stream (Cmd+S)</span>
+                
+                <!-- The Spinning Cast Bar (Hidden by default) -->
+                <svg id="loading-spinner" class="hidden animate-spin absolute right-6 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
             </button>
         </form>
 
-        <div id="results-area" class="hidden mt-6 p-6 bg-gray-900 rounded-xl border border-gray-700 shadow-inner">
-            <p id="status-text" class="text-sm text-blue-400 mb-3 font-medium">Streaming connection active...</p>
+        <!-- The Loot Drop (Starts opacity-0, fades to opacity-100) -->
+        <div id="results-area" class="hidden mt-6 p-6 bg-gray-900 rounded-xl border border-gray-700 shadow-inner transition-opacity duration-500 opacity-0">
+            <p id="status-text" class="text-sm text-blue-400 mb-3 font-medium flex items-center gap-2">
+                <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span></span>
+                Streaming connection active...
+            </p>
             <audio id="audio-player" controls class="w-full rounded-lg outline-none"></audio>
         </div>
     </div>
@@ -55,10 +82,12 @@
         const textInput = document.getElementById('text-input');
         const convertBtn = document.getElementById('convert-btn');
         const btnText = document.getElementById('btn-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
         const resultsArea = document.getElementById('results-area');
         const audioPlayer = document.getElementById('audio-player');
         const clearBtn = document.getElementById('clear-btn');
-        const statusText = document.getElementById('status-text');
+        const errorToast = document.getElementById('error-toast');
+        const errorToastText = document.getElementById('error-toast-text');
 
         // Restore text from memory
         textInput.value = localStorage.getItem('synthText') || '';
@@ -70,15 +99,38 @@
             textInput.value = '';
             localStorage.setItem('synthText', '');
             resultsArea.classList.add('hidden');
+            resultsArea.classList.replace('opacity-100', 'opacity-0');
             audioPlayer.src = '';
         });
 
-        // --- THE MACRO: Cmd+S or Ctrl+S ---
+        // Show Error Toast (replaces alert)
+        function showError(message) {
+            errorToastText.innerText = message;
+            errorToast.classList.remove('-translate-y-20', 'opacity-0');
+            errorToast.classList.add('translate-y-0', 'opacity-100', 'animate-shake');
+            
+            setTimeout(() => { errorToast.classList.remove('animate-shake'); }, 400);
+            setTimeout(() => {
+                errorToast.classList.remove('translate-y-0', 'opacity-100');
+                errorToast.classList.add('-translate-y-20', 'opacity-0');
+            }, 4000); // Hides after 4 seconds
+        }
+
+        // --- THE MACRO WITH HIT MARKER ---
         window.addEventListener('keydown', (e) => {
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-                e.preventDefault(); // Stop the browser from trying to "Save Page As HTML"
+                e.preventDefault(); 
                 if (!convertBtn.disabled) {
-                    convertBtn.click(); // Trigger the button click programmatically
+                    // Visual Hit Marker: Flash the background and depress the button
+                    textInput.classList.add('bg-gray-800');
+                    convertBtn.classList.add('scale-95');
+                    
+                    setTimeout(() => {
+                        textInput.classList.remove('bg-gray-800');
+                        convertBtn.classList.remove('scale-95');
+                    }, 150);
+
+                    convertBtn.click(); 
                 }
             }
         });
@@ -86,35 +138,44 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Start Cast Bar UI
             convertBtn.disabled = true;
-            convertBtn.classList.replace('bg-blue-600', 'bg-gray-600');
-            btnText.innerText = 'Opening Liquid Pipe...';
-            resultsArea.classList.add('hidden');
+            convertBtn.classList.replace('bg-blue-600', 'bg-gray-700');
+            convertBtn.classList.remove('hover:bg-blue-500', 'hover:shadow-blue-500/25');
+            btnText.innerText = 'Synthesizing...';
+            loadingSpinner.classList.remove('hidden');
+            
+            // Hide previous loot drop
+            resultsArea.classList.replace('opacity-100', 'opacity-0');
+            setTimeout(() => resultsArea.classList.add('hidden'), 300);
 
             const formData = new FormData(form);
 
             try {
-                // Step 1: Get the Ticket
                 const response = await fetch('/prepare_stream', { method: 'POST', body: formData });
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Step 2: Plug the Ticket into the Audio Player
+                    // Loot Drop Success
                     resultsArea.classList.remove('hidden');
-                    audioPlayer.src = data.stream_url;
+                    // Slight delay to allow display:block to render before fading in opacity
+                    setTimeout(() => resultsArea.classList.replace('opacity-0', 'opacity-100'), 50);
                     
-                    // Step 3: Instantly play. It will start speaking before the file finishes generating!
+                    audioPlayer.src = data.stream_url;
                     audioPlayer.play(); 
                     
                 } else {
-                    alert("Error: " + data.error);
+                    showError("Server Error: " + data.error);
                 }
             } catch (err) {
-                alert("Network error occurred.");
+                showError("Network error. Check your connection.");
             } finally {
+                // End Cast Bar UI
                 convertBtn.disabled = false;
-                convertBtn.classList.replace('bg-gray-600', 'bg-blue-600');
+                convertBtn.classList.replace('bg-gray-700', 'bg-blue-600');
+                convertBtn.classList.add('hover:bg-blue-500', 'hover:shadow-blue-500/25');
                 btnText.innerText = 'Synthesize & Stream (Cmd+S)';
+                loadingSpinner.classList.add('hidden');
             }
         });
     </script>
