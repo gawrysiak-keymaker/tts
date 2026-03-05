@@ -1,69 +1,91 @@
-# app.py
 import os
+import time
 import uuid
 import logging
-from flask import Flask, render_template, request, jsonify, Response
-from google.cloud import texttospeech
-from google.oauth2 import service_account
+from flask import Flask, request, jsonify, render_template, Response
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 
-from config import DEFAULT_VOICE
-from tts_utils import liquid_stream_generator
+import config
+from tts_utils import stream_and_save_audio
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
+app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
 
-# The Vault: Temporarily holds text while the browser connects the audio pipe
-stream_vault = {}
+# Configure Logging
+logging.basicConfig(level=logging.INFO if not app.config['DEBUG'] else logging.DEBUG)
 
-# --- Initialize Google Cloud TTS Client ---
-google_creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-tts_client = None
-if google_creds_path and os.path.isfile(google_creds_path):
-    try:
-        gcp_creds = service_account.Credentials.from_service_account_file(google_creds_path)
-        tts_client = texttospeech.TextToSpeechClient(credentials=gcp_creds)
-        logging.info("Google Cloud TTS Client initialized successfully.")
-    except Exception as e:
-        logging.error(f"Failed to initialize TTS Client: {e}")
+# Rate Limiting
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
+# Initialize Gemini Model
+api_key = os.getenv("GEMINI_API_KEY")
+config.GEMINI_MODEL_NAME = config.get_available_flash_lite_model(api_key)
+app.logger.info(f"Selected Gemini Model: {config.GEMINI_MODEL_NAME}")
+
+# ---------------------------------------------------------------------------
+# Stream Vault (Thread-safe under GIL; replace with Redis for multi-process)
+# ---------------------------------------------------------------------------
+vault = {}
+VAULT_TTL = 300  # 5 minutes
+
+def cleanup_vault():
+    """Removes expired entries from the stream vault."""
+    now = time.time()
+    expired_keys =[k for k, v in vault.items() if now - v['timestamp'] > VAULT_TTL]
+    for k in expired_keys:
+        del vault[k]
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 @app.route('/')
 def index():
-    return render_template('index.html', tts_enabled=(tts_client is not None))
+    return render_template('index.html')
 
 @app.route('/prepare_stream', methods=['POST'])
+@limiter.limit("10 per minute")
 def prepare_stream():
-    """Takes the text, gives it a ticket number, and hands the ticket back to the UI."""
-    if not tts_client:
-        return jsonify({"error": "TTS service unavailable."}), 503
-
-    text = request.form.get('text', '').strip()
+    cleanup_vault()
+    
+    data = request.json or {}
+    text = data.get('text', '').strip()
+    
     if not text:
-        return jsonify({"error": "Invalid text input."}), 400
-
-    # Generate a unique ticket ID for this stream
+        return jsonify({"error": "Text is required"}), 400
+        
+    if len(text) > config.MAX_CHARS:
+        return jsonify({"error": f"Text exceeds maximum length of {config.MAX_CHARS} characters"}), 413
+        
     stream_id = str(uuid.uuid4())
-    stream_vault[stream_id] = text
-
-    # Tell the browser where to connect the audio pipe
-    return jsonify({
-        "stream_url": f"/stream_audio/{stream_id}"
-    })
+    vault[stream_id] = {
+        'text': text,
+        'timestamp': time.time()
+    }
+    
+    return jsonify({"stream_url": f"/stream_audio/{stream_id}"})
 
 @app.route('/stream_audio/<stream_id>')
 def stream_audio(stream_id):
-    """The Browser connects here. We open the valve and pour the Liquid Stream."""
-    text = stream_vault.pop(stream_id, None)
-    if not text:
+    if stream_id not in vault:
         return "Stream not found or expired", 404
-
-    # Response turns our python generator into a live HTTP streaming pipe
+        
+    # Retrieve and immediately remove the text from the vault
+    text = vault.pop(stream_id)['text']
+    
     return Response(
-        liquid_stream_generator(text, DEFAULT_VOICE, tts_client),
+        stream_and_save_audio(text), 
         mimetype="audio/mpeg"
     )
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(port=5000, threaded=True)
