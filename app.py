@@ -88,4 +88,4 @@ def stream_audio(stream_id):
     )
 
 if __name__ == '__main__':
-    app.run(port=5000, threaded=True)
+    app.run(port=5001, threaded=True)
