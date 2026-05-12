@@ -18,6 +18,8 @@ app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO if not app.config['DEBUG'] else logging.DEBUG)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Rate Limiting
 limiter = Limiter(
@@ -29,7 +31,9 @@ limiter = Limiter(
 
 # Initialize Gemini Model
 api_key = os.getenv("GEMINI_API_KEY")
-config.GEMINI_MODEL_NAME = config.get_available_flash_lite_model(api_key)
+if not api_key:
+    app.logger.error("CRITICAL ERROR: No Gemini API Key found in .env!")
+    
 app.logger.info(f"Selected Gemini Model: {config.GEMINI_MODEL_NAME}")
 
 # ---------------------------------------------------------------------------

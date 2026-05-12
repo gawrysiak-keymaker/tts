@@ -6,7 +6,7 @@ import logging
 import threading
 from datetime import datetime
 from google.cloud import texttospeech
-import google.generativeai as genai
+from google import genai
 import config
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ def split_text_by_bytes(text: str, max_bytes: int = 4000) -> list[str]:
 # Background Threads
 # ---------------------------------------------------------------------------
 def generate_filename_task(text: str, q: queue.Queue, cache: TTLCache):
-    """Thread 1 (Namer): Calls Gemini to generate a smart filename."""
+    """Thread 1 (Namer Agent): Calls Gemini 3.1 to generate a smart filename."""
     text_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
     
     # Check Cache
@@ -83,15 +83,27 @@ def generate_filename_task(text: str, q: queue.Queue, cache: TTLCache):
         return
 
     try:
-        model_name = config.GEMINI_MODEL_NAME or "gemini-2.0-flash"
-        model = genai.GenerativeModel(model_name)
+        # Equip the New SDK Client
+        api_key = os.getenv("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key)
+        model_name = config.GEMINI_MODEL_NAME
+
+        # Highly optimized, strict prompt to prevent Markdown formatting
         prompt = (
-            "Generate a concise, descriptive filename (max 5 words, snake_case, "
-            "no extension, lowercase) for the following text. Return ONLY the filename string.\n\n"
+            "You are an expert copywriter. Generate a concise, descriptive filename "
+            "(max 5 words, snake_case, no extension, lowercase) for the following text. "
+            "Return ONLY the raw filename string. Do not include markdown formatting, backticks, or quotes.\n\n"
             f"Text: {text[:2000]}"
         )
-        response = model.generate_content(prompt)
-        name = response.text.strip().replace(' ', '_').replace('\n', '').lower()
+        
+        # Cast the spell
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        
+        # Strip out any rogue backticks or spaces just in case
+        name = response.text.strip().replace(' ', '_').replace('\n', '').replace('`', '').lower()
         
         # Sanitize filename
         name = ''.join(c for c in name if c.isalnum() or c == '_')
@@ -100,9 +112,11 @@ def generate_filename_task(text: str, q: queue.Queue, cache: TTLCache):
             
         cache.set(text_hash, name)
         q.put(name)
+        logging.info(f"Namer Agent Success: {name}")
+        
     except Exception as e:
-        # Log at DEBUG to avoid console noise on 429 Quota errors
-        logging.debug(f"Gemini naming failed: {e}")
+        # If the 3.1 API fails, gracefully fallback
+        logging.error(f"Namer Agent Ambushed (Gemini failed): {e}")
         q.put("speech")
 
 def save_files_task(audio_data: bytes, text: str, q: queue.Queue):
