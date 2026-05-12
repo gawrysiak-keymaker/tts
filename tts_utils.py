@@ -73,7 +73,7 @@ def split_text_by_bytes(text: str, max_bytes: int = 4000) -> list[str]:
 # Background Threads
 # ---------------------------------------------------------------------------
 def generate_filename_task(text: str, q: queue.Queue, cache: TTLCache):
-    """Thread 1 (Namer Agent): Calls Gemini 3.1 to generate a smart filename."""
+    """Thread 1 (Namer Agent): Dual-Wields Gemini models for maximum uptime."""
     text_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
     
     # Check Cache
@@ -82,42 +82,44 @@ def generate_filename_task(text: str, q: queue.Queue, cache: TTLCache):
         q.put(cached_name)
         return
 
-    try:
-        # Equip the New SDK Client
-        api_key = os.getenv("GEMINI_API_KEY")
-        client = genai.Client(api_key=api_key)
-        model_name = config.GEMINI_MODEL_NAME
+    # The Weapon Swap Logic: Try primary model first, fallback to 2.5-flash
+    models_to_try = [config.GEMINI_MODEL_NAME, "gemini-2.5-flash"]
+    
+    api_key = os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
 
-        # Highly optimized, strict prompt to prevent Markdown formatting
-        prompt = (
-            "You are an expert copywriter. Generate a concise, descriptive filename "
-            "(max 5 words, snake_case, no extension, lowercase) for the following text. "
-            "Return ONLY the raw filename string. Do not include markdown formatting, backticks, or quotes.\n\n"
-            f"Text: {text[:2000]}"
-        )
-        
-        # Cast the spell
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt
-        )
-        
-        # Strip out any rogue backticks or spaces just in case
-        name = response.text.strip().replace(' ', '_').replace('\n', '').replace('`', '').lower()
-        
-        # Sanitize filename
-        name = ''.join(c for c in name if c.isalnum() or c == '_')
-        if not name:
-            name = "speech"
+    # Highly optimized, strict prompt to prevent Markdown formatting
+    prompt = (
+        "You are an expert copywriter. Generate a concise, descriptive filename "
+        "(max 5 words, snake_case, no extension, lowercase) for the following text. "
+        "Return ONLY the raw filename string. Do not include markdown formatting, backticks, or quotes.\n\n"
+        f"Text: {text[:2000]}"
+    )
+
+    for model_name in models_to_try:
+        try:
+            logging.info(f"Namer Agent attacking with: {model_name}...")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
             
-        cache.set(text_hash, name)
-        q.put(name)
-        logging.info(f"Namer Agent Success: {name}")
-        
-    except Exception as e:
-        # If the 3.1 API fails, gracefully fallback
-        logging.error(f"Namer Agent Ambushed (Gemini failed): {e}")
-        q.put("speech")
+            # Strip out any rogue formatting
+            name = response.text.strip().replace(' ', '_').replace('\n', '').replace('`', '').lower()
+            name = ''.join(c for c in name if c.isalnum() or c == '_')
+            
+            if name:
+                cache.set(text_hash, name)
+                q.put(name)
+                logging.info(f"Namer Agent Success ({model_name}): {name}")
+                return # Exit the function immediately on success!
+                
+        except Exception as e:
+            logging.warning(f"Weapon {model_name} failed: {e}. Auto-swapping...")
+
+    # If BOTH models fail, fallback to the default
+    logging.error("Namer Agent completely ambushed. Defaulting to 'speech'.")
+    q.put("speech")
 
 def save_files_task(audio_data: bytes, text: str, q: queue.Queue):
     """Thread 2 (Scribe): Waits for the name and saves files to disk."""
